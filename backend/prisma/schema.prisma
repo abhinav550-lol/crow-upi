@@ -1,0 +1,193 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ──────────────────────────────────────
+
+enum Role {
+  BUYER
+  SELLER
+  MODERATOR
+}
+
+enum TransactionType {
+  CREDIT
+  DEBIT
+  ESCROW_LOCK
+  ESCROW_RELEASE
+  REFUND
+}
+
+enum OrderStatus {
+  PENDING
+  ESCROWED
+  DISPUTED
+  RELEASED
+  REFUNDED
+  CANCELLED
+}
+
+enum EscrowStatus {
+  LOCKED
+  FROZEN
+  RELEASED
+  REFUNDED
+}
+
+enum DisputeStatus {
+  OPEN
+  RESOLVED_FOR_SELLER
+  RESOLVED_FOR_BUYER
+  CLOSED
+}
+
+// ─── Models ─────────────────────────────────────
+
+model User {
+  id           String   @id @default(uuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         Role
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  wallet           Wallet?
+  products         Product[]        @relation("SellerProducts")
+  buyerOrders      Order[]          @relation("BuyerOrders")
+  sellerOrders     Order[]          @relation("SellerOrders")
+  raisedDisputes   Dispute[]        @relation("DisputeRaisedBy")
+  moderatedDisputes Dispute[]       @relation("DisputeModerator")
+  chatMessages     ChatMessage[]
+  buyerEscrows     Escrow[]         @relation("BuyerEscrows")
+
+  @@map("users")
+}
+
+model Wallet {
+  id      String @id @default(uuid())
+  userId  String @unique
+  balance Float  @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user         User                @relation(fields: [userId], references: [id])
+  transactions WalletTransaction[]
+
+  @@map("wallets")
+}
+
+model WalletTransaction {
+  id          String          @id @default(uuid())
+  walletId    String
+  type        TransactionType
+  amount      Float
+  description String?
+  referenceId String?
+
+  createdAt DateTime @default(now())
+
+  wallet Wallet @relation(fields: [walletId], references: [id])
+
+  @@map("wallet_transactions")
+}
+
+model Product {
+  id          String  @id @default(uuid())
+  sellerId    String
+  name        String
+  description String?
+  price       Float
+  imageUrl    String?
+  isActive    Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  seller User    @relation("SellerProducts", fields: [sellerId], references: [id])
+  orders Order[]
+
+  @@map("products")
+}
+
+model Order {
+  id            String      @id @default(uuid())
+  buyerId       String
+  sellerId      String
+  productId     String
+  amount        Float
+  status        OrderStatus @default(PENDING)
+  disputed      Boolean     @default(false)
+  autoReleaseAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  buyer   User    @relation("BuyerOrders", fields: [buyerId], references: [id])
+  seller  User    @relation("SellerOrders", fields: [sellerId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
+  escrow  Escrow?
+  dispute Dispute?
+
+  @@map("orders")
+}
+
+model Escrow {
+  id         String       @id @default(uuid())
+  orderId    String       @unique
+  buyerId    String
+  amount     Float
+  status     EscrowStatus @default(LOCKED)
+  releaseAt  DateTime
+  lockedAt   DateTime     @default(now())
+  releasedAt DateTime?
+  refundedAt DateTime?
+
+  order Order @relation(fields: [orderId], references: [id])
+  buyer User  @relation("BuyerEscrows", fields: [buyerId], references: [id])
+
+  @@map("escrows")
+}
+
+model Dispute {
+  id         String        @id @default(uuid())
+  orderId    String        @unique
+  raisedById String
+  reason     String
+  status     DisputeStatus @default(OPEN)
+  moderatorId String?
+
+  createdAt  DateTime  @default(now())
+  resolvedAt DateTime?
+
+  order    Order         @relation(fields: [orderId], references: [id])
+  raisedBy User          @relation("DisputeRaisedBy", fields: [raisedById], references: [id])
+  moderator User?        @relation("DisputeModerator", fields: [moderatorId], references: [id])
+  messages ChatMessage[]
+
+  @@map("disputes")
+}
+
+model ChatMessage {
+  id        String @id @default(uuid())
+  disputeId String
+  senderId  String
+  message   String
+
+  createdAt DateTime @default(now())
+
+  dispute Dispute @relation(fields: [disputeId], references: [id])
+  sender  User    @relation(fields: [senderId], references: [id])
+
+  @@map("chat_messages")
+}
